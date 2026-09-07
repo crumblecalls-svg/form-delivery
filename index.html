@@ -39,6 +39,7 @@
     background-position: 0 0, 14px 20px;
   }
   .brand-panel{ display:none; } /* hidden on mobile entirely */
+  .form-panel{ display:contents; } /* passthrough — card centres directly in .shell */
 
   .card{
     width:100%; max-width:460px;
@@ -48,51 +49,11 @@
     position:relative;
   }
 
-  /* ── Desktop / laptop: a proper two-panel layout, matching the exact
-        split pattern your own dashboard login already uses — a branded
-        blue panel alongside the form, rather than a small card stranded
-        in empty space. Only activates on genuinely wide viewports; a
-        tablet in portrait still gets the mobile treatment above. ────────── */
+  /* ── Desktop / laptop: keep the same single centered card as mobile, just
+        on a full-height dotted background. The old two-panel split has been
+        retired in favour of one centred card with the logo inside it. ────── */
   @media (min-width: 880px) and (pointer: fine){
-    .shell{
-      padding:0; background-image:none; background-color:#fff;
-      display:grid; grid-template-columns: 1fr 1fr;
-      grid-template-rows: 1fr;  /* without this, grid sizes the row to fit
-                                   its content and stretches nothing — the
-                                   exact whitespace-above-and-below bug */
-      align-items:stretch;
-      min-height:100vh; min-height:100dvh;
-    }
-    .brand-panel{
-      display:flex; flex-direction:column; justify-content:center;
-      min-height:100vh; min-height:100dvh;
-      padding:0 64px;
-      background-color: var(--blue);
-      background-image:
-        radial-gradient(circle, rgba(255,255,255,.09) 3px, transparent 3px),
-        radial-gradient(circle, rgba(255,255,255,.06) 1.8px, transparent 1.8px);
-      background-size: 52px 52px, 30px 30px;
-      background-position: 0 0, 16px 22px;
-      color:#fff;
-    }
-    .brand-panel .mark{ margin:0 0 32px; justify-content:flex-start; }
-    .brand-panel .mark img{ height:44px; }
-    .brand-panel h1{ font-size:2.1rem; line-height:1.25; max-width:14ch; margin-bottom:16px; }
-    .brand-panel p{ font-size:1rem; color:rgba(255,255,255,.78); max-width:32ch; line-height:1.6; margin:0; }
-
-    .form-panel{
-      display:flex; align-items:center; justify-content:center;
-      min-height:100vh; min-height:100dvh;
-      padding:40px;
-      background-color: var(--bg-page);
-      background-image:
-        radial-gradient(circle, rgba(1,1,151,.05) 2.5px, transparent 2.5px),
-        radial-gradient(circle, rgba(1,1,151,.04) 1.5px, transparent 1.5px);
-      background-size: 46px 46px, 28px 28px;
-      background-position: 0 0, 14px 20px;
-    }
-    .card{ max-width:420px; }
-    .form-panel .card > .mark{ display:none; } /* the brand panel already carries this on desktop */
+    .card{ max-width:480px; padding:44px 40px 34px; }
   }
 
   .mark{
