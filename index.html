@@ -165,6 +165,11 @@
     display:flex; align-items:center; justify-content:center; margin-bottom:16px;
   }
 
+  .submit-error{
+    width:100%; margin-top:14px; padding:12px 14px; border-radius:12px;
+    background:#FEF2F2; border:1.5px solid #FECACA; color:#B91C1C;
+    font-size:.86rem; font-weight:600; text-align:left;
+  }
   @media (prefers-reduced-motion: reduce){ .step{ animation:none !important; } }
 </style>
 </head>
@@ -244,7 +249,7 @@
           <option value="" disabled selected>Select branch</option>
           <option>Chaklala Scheme 3</option>
           <option>Saddar</option>
-          <option>Bahria</option>
+          <option>Bahria Phase 4</option>
           <option>I-8</option>
           <option>Blue Area</option>
           <option>F-11</option>
@@ -316,10 +321,11 @@
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M11 19l-7-7 7-7"/></svg>
           Previous
         </button>
-        <button class="btn-next" onclick="submitForm()">Next
+        <button class="btn-next" id="submitBtn" onclick="submitForm()"><span>Submit</span>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
         </button>
       </div>
+      <div id="submitError" class="submit-error" style="display:none;"></div>
     </div>
 
     <!-- STEP 6 — Thank you -->
@@ -339,12 +345,20 @@
 
 <script>
   // ═══════════════════════════════════════════════════════════════════════
-  // NOT YET CONNECTED TO A BACKEND — INTENTIONALLY. See buildPayload()
-  // below for the exact shape this will send once wiring it up is safe to
-  // do (Apps Script is currently paused pending a security review).
+  // BACKEND: a dedicated, standalone Apps Script Web App (delivery-form
+  // backend) that appends straight into the "Delivery" tab of the CX
+  // spreadsheet. This is deliberately NOT the Cloudflare-gated staff
+  // endpoint — customers have no login, so this one is public and only
+  // knows how to do one thing: accept a 'delivery_submission'.
+  //
+  // Paste the /exec URL of that deployment here.
   // ═══════════════════════════════════════════════════════════════════════
+  const FORM_ENDPOINT = 'https://script.google.com/macros/s/AKfycbx0Zj6y3mM2biuuXuSuHf81zF8RJXI_WpXwcWUkVCxnJd8e_h-sqJ9wlDt-SjlKN0dL/exec';
+  const FORM_TOKEN    = 'crumble-dlv-7Kq9pW2xN4mR8vL3sT6yB1zH5jF0cA'; // must match FORM_TOKEN Script Property
 
   const state = { branch:null, channel:null, rating:null, sentiment:null, likes:[] };
+  const startedAt = Date.now(); // for the sheet's "Time Taken" column
+  let submitting = false;
   let current = 0;
   let branchAutoAdvanceOff = false; // set once the user steps back onto the branch step
 
@@ -355,7 +369,7 @@
   const BRANCH_COORDS = {
     "Chaklala Scheme 3": [33.58644, 73.08819],
     "Saddar":            [33.59356, 73.05156],
-    "Bahria":            [33.54856, 73.13781],
+    "Bahria Phase 4":    [33.54856, 73.13781],
     "I-8":               [33.66781, 73.07606],
     "Blue Area":         [33.71011, 73.05745],
     "F-11":              [33.68344, 72.98783],
@@ -513,25 +527,96 @@
     if(!opt.classList.contains('selected') && idx !== -1) state.likes.splice(idx, 1);
   });
 
+  function normalisePhone(raw){
+    // Accept "3001234567", "03001234567", "+923001234567", spaces/dashes.
+    let d = String(raw || '').replace(/[^0-9]/g, '');
+    if(d.startsWith('92')) d = d.slice(2);
+    if(d.startsWith('0'))  d = d.slice(1);
+    return d ? '+92' + d : '';
+  }
+
+  function fmtTimeTaken(ms){
+    const s = Math.max(0, Math.round(ms / 1000));
+    const m = Math.floor(s / 60), r = s % 60;
+    return String(m).padStart(2,'0') + 'm:' + String(r).padStart(2,'0') + 's';
+  }
+
   function buildPayload(){
     return {
       action: 'delivery_submission',
-      createdAt: new Date().toISOString(),
-      phoneNumber: '+92' + document.getElementById('phoneInput').value.trim(),
+      token: FORM_TOKEN,
+      phoneNumber: normalisePhone(document.getElementById('phoneInput').value),
       location: state.branch,
-      status: 'completed',
       orderChannel: state.channel,
       rating: state.rating,
-      sentiment: state.sentiment,
-      likedAspects: state.likes.join(', '),
-      comments: document.getElementById('commentInput').value.trim()
+      aspects: state.likes.join(', '),      // backend routes to "like" or "improve" by rating
+      comments: document.getElementById('commentInput').value.trim(),
+      timeTaken: fmtTimeTaken(Date.now() - startedAt)
     };
   }
 
-  function submitForm(){
+  function setSubmitState(busy, label){
+    const btn = document.getElementById('submitBtn');
+    btn.disabled = busy;
+    btn.querySelector('span').textContent = label;
+  }
+
+  function showSubmitError(msg){
+    const el = document.getElementById('submitError');
+    el.textContent = msg;
+    el.style.display = 'block';
+  }
+
+  async function submitForm(){
+    if(submitting) return;
     const payload = buildPayload();
-    console.log('Delivery survey response (not yet submitted anywhere):', payload);
-    goTo(6);
+    if(!payload.location || !payload.rating || !payload.orderChannel){
+      showSubmitError('Something is missing — please go back and complete every step.');
+      return;
+    }
+    submitting = true;
+    document.getElementById('submitError').style.display = 'none';
+    setSubmitState(true, 'Submitting…');
+
+    // Retry a couple of times — customers are on mobile data, and Apps
+    // Script occasionally cold-starts slowly. Same payload each time; the
+    // backend de-duplicates on phone + short window, so a retry after a
+    // "succeeded but response was lost" can't double-count.
+    const attempts = 3;
+    for(let i = 1; i <= attempts; i++){
+      try{
+        // text/plain on purpose: a "simple" request, so the browser skips
+        // the CORS preflight that Apps Script cannot answer.
+        const res = await fetch(FORM_ENDPOINT, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify(payload),
+          redirect: 'follow'
+        });
+        const text = await res.text();
+        let data = null;
+        try{ data = JSON.parse(text); }catch(_){ throw new Error('bad_response'); }
+        if(data.status === 'success' || data.status === 'duplicate'){
+          submitting = false;
+          goTo(6);
+          return;
+        }
+        // Server rejected it deliberately (validation) — don't retry, tell them.
+        showSubmitError(data.message || 'We couldn\'t record your response. Please try again.');
+        setSubmitState(false, 'Submit');
+        submitting = false;
+        return;
+      }catch(err){
+        if(i < attempts){
+          setSubmitState(true, 'Retrying… (' + (i+1) + '/' + attempts + ')');
+          await new Promise(r => setTimeout(r, 900 * i));
+          continue;
+        }
+      }
+    }
+    showSubmitError('Network problem — please check your connection and tap Submit again.');
+    setSubmitState(false, 'Submit');
+    submitting = false;
   }
 </script>
 
